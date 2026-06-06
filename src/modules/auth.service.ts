@@ -27,15 +27,22 @@ export class AuthService {
     //1.Api dang ky
     async register(dto: RegisterDto): Promise<UserResponse> {
         const { username, email } = dto;
-        const emailExists = await this.authRepository.findByEmail(email);
+        const normalizedEmail = email.toLowerCase().trim();
+        const normalizedUsername = username.toLowerCase().trim();
+
+        const emailExists = await this.authRepository.findByEmail(normalizedEmail);
         if (emailExists) throw new Error('Email này đã được sử dụng đăng ký tài khoản');
 
-        const usernameExists = await this.authRepository.findByUsername(username);
+        const usernameExists = await this.authRepository.findByUsername(normalizedUsername);
         if (usernameExists) {
             throw new Error('Tên đăng nhập này đã tồn tại trên hệ thống');
         }
 
-        const createUser = await this.authRepository.createUser(dto);
+        const createUser = await this.authRepository.createUser({
+            ...dto,
+            email: normalizedEmail,
+            username: normalizedUsername
+        });
 
         return this.mapToUserResponse(createUser);
     }
@@ -43,8 +50,9 @@ export class AuthService {
     //2.Api dang nhap
     async login(dto: LoginDto): Promise<LoginResponse> {
         const { email, password } = dto;
+        const normalizedEmail = email.toLowerCase().trim();
 
-        const user = await this.authRepository.findByEmail(email);
+        const user = await this.authRepository.findByEmail(normalizedEmail);
         if (!user) {
             throw new Error('Email hoặc mật khẩu không chính xác');
         }
@@ -127,11 +135,12 @@ export class AuthService {
     // --- LOGIC QUÊN MẬT KHẨU (Giữ nguyên) ---
     async forgotPassword(forgotDto: ForgotPasswordDto): Promise<string> {
         const { email } = forgotDto;
-        const user = await this.authRepository.findByEmail(email);
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await this.authRepository.findByEmail(normalizedEmail);
         if (!user) throw new Error('Không tìm thấy tài khoản liên kết');
         const resetToken = crypto.randomBytes(32).toString('hex');
         const redisKey = `reset_token:${resetToken}`;
-        await redisClient.set(redisKey, email, { EX: 600 }); // 10 phút
+        await redisClient.set(redisKey, normalizedEmail, { EX: 600 }); // 10 phút
         return resetToken;
     }
     // --- LOGIC ĐẶT LẠI MẬT KHẨU MỚI (Giữ nguyên) ---
@@ -141,7 +150,8 @@ export class AuthService {
         const redisKey = `reset_token:${token}`;
         const email = await redisClient.get(redisKey);
         if (!email) throw new Error('Mã xác thực không hợp lệ hoặc đã hết hạn');
-        const isUpdated = await this.authRepository.updatePassword(email, newPassword);
+        const normalizedEmail = email.toLowerCase().trim();
+        const isUpdated = await this.authRepository.updatePassword(normalizedEmail, newPassword);
         if (!isUpdated) throw new Error('Cập nhật thất bại');
         await redisClient.del(redisKey);
     }
