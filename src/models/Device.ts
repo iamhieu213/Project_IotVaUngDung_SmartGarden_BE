@@ -30,8 +30,7 @@ const DeviceSchema = new Schema<IDevice>(
         house: {
             type: Schema.Types.ObjectId,
             ref: 'House',
-            required: true,
-            unique: true, // 1 house = 1 device
+            required: true, // 1 house can have multiple devices
         },
 
         lastSeen: {

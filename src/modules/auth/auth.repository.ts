@@ -1,4 +1,4 @@
-import User, { IUser } from '../models/User'
+import User, { IUser } from '../../models/User'
 import { RegisterDto } from './auth.dto'
 
 export class AuthRepository {
