@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { AuthRepository } from "./auth.repository";
 import { RegisterDto, UserResponse, LoginDto, LoginResponse, ForgotPasswordDto, ResetPasswordDto, RefreshTokenDto, RefreshTokenResponse } from "./auth.dto";
-import User, { IUser } from "../models/User";
-import redisClient from "../configs/redis";
+import User, { IUser } from "../../models/User";
+import redisClient from "../../configs/redis";
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto';
 
