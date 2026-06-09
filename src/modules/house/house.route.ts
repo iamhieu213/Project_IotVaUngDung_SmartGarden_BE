@@ -10,5 +10,6 @@ router.use(authMiddleware as any);
 
 router.post('/create', houseController.createHouse as any);
 router.get('/', houseController.getHouses as any);
+router.get('/:id', houseController.getHouseById as any);
 
 export default router;

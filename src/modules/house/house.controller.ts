@@ -65,4 +65,33 @@ export class HouseController {
       });
     }
   };
+
+  getHouseById = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: 'Thiếu mã nhà nấm (id)' });
+        return;
+      }
+      const result = await this.houseService.getHouseById(id as string, req.user.id);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Không tìm thấy nhà nấm hoặc bạn không có quyền truy cập' });
+        return;
+      }
+      res.status(200).json({
+        success: true,
+        message: 'Lấy thông tin chi tiết nhà nấm thành công',
+        data: result,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Lấy chi tiết nhà nấm thất bại',
+      });
+    }
+  };
 }
