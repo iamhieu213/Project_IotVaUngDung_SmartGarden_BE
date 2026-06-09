@@ -30,4 +30,11 @@ export class HouseService {
         const houses = await House.find({ owner: ownerId });
         return houses.map((house) => this.mapToHouseResponse(house));
     }
+
+    // Lấy chi tiết một nhà nấm theo ID và chủ sở hữu
+    async getHouseById(houseId: string, ownerId: string): Promise<HouseResponse | null> {
+        const house = await House.findOne({ _id: houseId, owner: ownerId });
+        if (!house) return null;
+        return this.mapToHouseResponse(house);
+    }
 }
