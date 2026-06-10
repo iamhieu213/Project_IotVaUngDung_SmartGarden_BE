@@ -3,7 +3,7 @@ import axios from 'axios';
 import Device from '../models/Device';
 import SensorData from '../models/SensorData';
 import redisClient from '../configs/redis';
-
+import { io } from '../server'
 export class MqttService {
   private client: mqtt.MqttClient | null = null;
   private brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
@@ -11,7 +11,13 @@ export class MqttService {
 
   connect(): void {
     console.log(`[MQTT] Đang kết nối tới Broker tại: ${this.brokerUrl}...`);
-    this.client = mqtt.connect(this.brokerUrl);
+
+    const options = {
+      username: process.env.MQTT_USERNAME || '',
+      password: process.env.MQTT_PASSWORD || ''
+    };
+
+    this.client = mqtt.connect(this.brokerUrl, options);
 
     this.client.on('connect', () => {
       console.log('--- [MQTT] Backend đã kết nối thành công tới Mosquitto Broker! ---');
@@ -38,6 +44,8 @@ export class MqttService {
         const payload = JSON.parse(message.toString());
         const { temperature, humidity, soilMoisture, lightLevel } = payload;
 
+        console.log(`[MQTT] Nhận dữ liệu từ ${deviceId}: Nhiệt độ: ${temperature}°C, Độ ẩm: ${humidity}%, Độ ẩm đất: ${soilMoisture}, Ánh sáng: ${lightLevel} lx`);
+
         // 1. Kiểm tra thiết bị trong MongoDB
         const device = await Device.findOne({ deviceId });
         
@@ -63,6 +71,22 @@ export class MqttService {
         await Device.findByIdAndUpdate(device._id, {
           status: 'online',
           lastSeen: new Date(),
+        });
+
+        io.emit('device_update', {
+          id: device._id.toString(),
+          deviceId: device.deviceId,
+          name: device.name,
+          status: 'online',
+          house: device.house.toString(),
+          lastSeen: new Date(),
+          latestTelemetry: {
+            temperature: temperature || 0,
+            humidity: humidity || 0,
+            soilMoisture: soilMoisture || 0,
+            lightIntensity: lightLevel || 0, // ánh xạ từ biến lightLevel của MQTT
+            createdAt: new Date(),
+          }
         });
 
         // 4. CHUYỂN TIẾP LÊN THINGSBOARD (Nếu có token lưu trong Redis)

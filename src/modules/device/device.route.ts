@@ -14,5 +14,6 @@ router.use(authMiddleware as any);
 
 router.post('/create', deviceController.createDevice as any);
 router.get('/house/:houseId', deviceController.getDevicesByHouse as any);
+router.delete('/:id', deviceController.deleteDevice as any);
 
 export default router;
