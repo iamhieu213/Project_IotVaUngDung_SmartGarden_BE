@@ -86,4 +86,29 @@ export class DeviceController {
       });
     }
   };
+
+  // Xóa thiết bị khỏi nhà nấm
+  deleteDevice = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: 'Thiếu mã thiết bị (id)' });
+        return;
+      }
+      await this.deviceService.deleteDevice(id as string, req.user.id);
+      res.status(200).json({
+        success: true,
+        message: 'Xóa thiết bị thành công',
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Xóa thiết bị thất bại',
+      });
+    }
+  };
 }

@@ -3,6 +3,7 @@ import House from '../../models/House'
 import redisClient from '../../configs/redis'
 import SensorData from '../../models/SensorData'
 import { CreateDeviceDto, DeviceResponse } from './device.dto'
+import axios from 'axios'
 
 export class DeviceService {
     private async mapToDeviceResponse(device: IDevice): Promise<DeviceResponse> {
@@ -30,6 +31,32 @@ export class DeviceService {
         };
     }
 
+    private async provisionThingsboardDevice(deviceName: string): Promise<string> {
+        const host = process.env.THINGSBOARD_HOST || 'https://thingsboard.cloud';
+        const provisionKey = process.env.THINGSBOARD_PROVISION_KEY;
+        const provisionSecret = process.env.THINGSBOARD_PROVISION_SECRET;
+        if (!provisionKey || !provisionSecret) throw new Error('Chưa cấu hình khóa đăng ký ThingsBoard (THINGSBOARD_PROVISION_KEY và THINGSBOARD_PROVISION_SECRET) trong .env');
+
+        try {
+            //gui yeu cau tu dong
+            const response = await axios.post(`${host}/api/v1/provision`, {
+                deviceName: deviceName,
+                provisionDeviceKey: provisionKey,
+                provisionDeviceSecret: provisionSecret
+            });
+
+            if (response.data.status === 'SUCCESS' && response.data.credentialsValue) {
+                return response.data.credentialsValue;
+            } else {
+                throw new Error(response.data.errorMsg || 'Phản hồi không hợp lệ từ ThingsBoard');
+            }
+        } catch (error: any) {
+            console.error('Lỗi khi đăng ký thiết bị tự động trên ThingsBoard:', error.response?.data || error.message);
+            throw new Error('Đăng ký tự động thất bại: ' + (error.response?.data?.message || error.message));
+        }
+
+    }
+
     async createDevice(dto: CreateDeviceDto, ownerId: string) {
         const house = await House.findOne({ _id: dto.houseId, owner: ownerId });
 
@@ -43,19 +70,33 @@ export class DeviceService {
             throw new Error('Thiết bị (deviceId) này đã được đăng ký trên hệ thống');
         }
 
+        //Kiem tra xem thiet bi co dang nam trong hang cho redis khong
+        const isRecentlyActive = await redisClient.exists(`unregistered_device:${dto.deviceId}`);
+
         //3.Luu thong tin thiet bi moi vao db
         const device = new Device({
             deviceId: dto.deviceId,
             name: dto.name,
             house: dto.houseId,
-            status: 'offline',
+            status: isRecentlyActive ? 'online' : 'offline',
+            lastSeen: isRecentlyActive ? new Date() : undefined,
         });
 
         const savedDevice = await device.save();
 
-        // 4. Lưu Token Thingsboard vào Redis (nếu có)
-        if (dto.thingsboardAccessToken) {
-            await redisClient.set(`tb_token:${dto.deviceId}`, dto.thingsboardAccessToken);
+        let tokenToSave = dto.thingsboardAccessToken;
+
+        if (!tokenToSave) {
+            try {
+                // Sử dụng Tên thiết bị hoặc MAC/Device ID làm tên trên ThingsBoard
+                tokenToSave = await this.provisionThingsboardDevice(dto.name);
+            } catch (err: any) {
+                console.warn('Tự động đăng ký ThingsBoard thất bại, thiết bị sẽ chạy ở chế độ offline trên cloud:', err.message);
+            }
+        }
+
+        if (tokenToSave) {
+            await redisClient.set(`tb_token:${dto.deviceId}`, tokenToSave);
         }
 
         // 5. Xóa thiết bị khỏi danh sách chờ trong Redis sau khi đã đăng ký thành công
@@ -72,6 +113,21 @@ export class DeviceService {
 
         const devices = await Device.find({ house: houseId });
 
+        const now = new Date();
+        const TIMEOUT_LIMIT = 2 * 60 * 1000;
+
+        for (const device of devices) {
+            // Nếu thiết bị đang online nhưng thời gian phản hồi cuối cùng đã quá 2 phút
+            if (device.status === 'online' && device.lastSeen) {
+                const timeSinceLastSeen = now.getTime() - new Date(device.lastSeen).getTime();
+
+                if (timeSinceLastSeen > TIMEOUT_LIMIT) {
+                    device.status = 'offline'; // Chuyển sang offline
+                    await device.save(); // Lưu lại vào MongoDB
+                }
+            }
+        }
+
         return Promise.all(devices.map((d) => this.mapToDeviceResponse(d)));
     }
 
@@ -82,5 +138,27 @@ export class DeviceService {
 
         // Trích xuất lấy deviceId
         return keys.map((key) => key.replace('unregistered_device:', ''));
+    }
+
+    // Xóa thiết bị khỏi nhà nấm
+    async deleteDevice(deviceId: string, ownerId: string): Promise<boolean> {
+        const device = await Device.findById(deviceId);
+        if (!device) {
+            throw new Error('Thiết bị không tồn tại');
+        }
+
+        // Kiểm tra quyền sở hữu nhà nấm chứa thiết bị này
+        const house = await House.findOne({ _id: device.house, owner: ownerId });
+        if (!house) {
+            throw new Error('Bạn không có quyền xóa thiết bị này');
+        }
+
+        // Xóa thiết bị trong MongoDB
+        await Device.findByIdAndDelete(deviceId);
+
+        // Xóa Token của thiết bị này trong Redis (nếu có)
+        await redisClient.del(`tb_token:${device.deviceId}`);
+
+        return true;
     }
 }
