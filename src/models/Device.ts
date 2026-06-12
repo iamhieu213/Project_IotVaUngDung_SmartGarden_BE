@@ -1,11 +1,19 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface ISensorPosition {
+    spaceX: number;
+    spaceY: number;
+    displayName?: string;
+}
+
 export interface IDevice extends Document {
     deviceId: string;
     name: string;
     status: 'online' | 'offline';
     house: mongoose.Types.ObjectId;
     lastSeen?: Date;
+
+    sensorPositions?: Map<string, ISensorPosition>;
 }
 
 const DeviceSchema = new Schema<IDevice>(
@@ -30,11 +38,22 @@ const DeviceSchema = new Schema<IDevice>(
         house: {
             type: Schema.Types.ObjectId,
             ref: 'House',
-            required: true, // 1 nhà nấm có thể có nhiều thiết bị
+            required: true,
         },
 
         lastSeen: {
             type: Date,
+        },
+
+        // Lưu vị trí riêng của từng cảm biến thành phần dưới dạng Map (Key-Value)
+        sensorPositions: {
+            type: Map,
+            of: {
+                spaceX: { type: Number, required: true },
+                spaceY: { type: Number, required: true },
+                displayName: { type: String, required: false }
+            },
+            default: {}
         },
     },
     {

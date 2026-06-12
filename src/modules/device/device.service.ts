@@ -6,11 +6,23 @@ import { CreateDeviceDto, DeviceResponse } from './device.dto'
 import axios from 'axios'
 
 export class DeviceService {
-    private async mapToDeviceResponse(device: IDevice): Promise<DeviceResponse> {
+    async mapToDeviceResponse(device: IDevice): Promise<DeviceResponse> {
         // Đọc token từ Redis ra để trả về cho Client
         const tbToken = await redisClient.get(`tb_token:${device.deviceId}`) || undefined;
         // Lấy dữ liệu cảm biến mới nhất
         const latestData = await SensorData.findOne({ device: device._id }).sort({ createdAt: -1 });
+
+        // Chuyển đổi Map trong Mongoose sang Plain Object để gửi về Client
+        const sensorPositionsObj: Record<string, { spaceX: number; spaceY: number; displayName?: string }> = {};
+        if (device.sensorPositions) {
+            device.sensorPositions.forEach((value, key) => {
+                sensorPositionsObj[key] = {
+                    spaceX: value.spaceX,
+                    spaceY: value.spaceY,
+                    displayName: value.displayName || '' // <-- Trả thêm tên hiển thị về Frontend
+                };
+            });
+        }
 
         return {
             id: (device._id as any).toString(),
@@ -20,6 +32,7 @@ export class DeviceService {
             house: device.house.toString(),
             lastSeen: device.lastSeen,
             thingsboardAccessToken: tbToken,
+            sensorPositions: sensorPositionsObj,
             createdAt: (device as any).createdAt,
             latestTelemetry: latestData ? {
                 temperature: latestData.temperature,
@@ -104,30 +117,12 @@ export class DeviceService {
         return this.mapToDeviceResponse(savedDevice);
     }
 
+    // SAU KHI SỬA (Chỉ lấy danh sách và trả về trực tiếp, tin cậy tuyệt đối vào DB):
     async getDevicesByHouse(houseId: string, ownerId: string): Promise<DeviceResponse[]> {
         const house = await House.findOne({ _id: houseId, owner: ownerId });
-
-        if (!house) {
-            throw new Error('Nhà nấm không tồn tại hoặc bạn không có quyền truy cập');
-        }
+        if (!house) throw new Error('Nhà nấm không tồn tại hoặc bạn không có quyền truy cập');
 
         const devices = await Device.find({ house: houseId });
-
-        const now = new Date();
-        const TIMEOUT_LIMIT = 2 * 60 * 1000;
-
-        for (const device of devices) {
-            // Nếu thiết bị đang online nhưng thời gian phản hồi cuối cùng đã quá 2 phút
-            if (device.status === 'online' && device.lastSeen) {
-                const timeSinceLastSeen = now.getTime() - new Date(device.lastSeen).getTime();
-
-                if (timeSinceLastSeen > TIMEOUT_LIMIT) {
-                    device.status = 'offline'; // Chuyển sang offline
-                    await device.save(); // Lưu lại vào MongoDB
-                }
-            }
-        }
-
         return Promise.all(devices.map((d) => this.mapToDeviceResponse(d)));
     }
 
@@ -160,5 +155,35 @@ export class DeviceService {
         await redisClient.del(`tb_token:${device.deviceId}`);
 
         return true;
+    }
+
+    // Hàm cập nhật tọa độ cho từng cảm biến thành phần
+    async updateSensorPosition(
+        deviceId: string, 
+        sensorType: string, 
+        spaceX: number, 
+        spaceY: number, 
+        displayName: string | undefined,
+        ownerId: string
+    ): Promise<DeviceResponse> {
+        const device = await Device.findById(deviceId);
+        if (!device) throw new Error('Thiết bị không tồn tại');
+
+        const house = await House.findOne({ _id: device.house, owner: ownerId });
+        if (!house) throw new Error('Bạn không có quyền chỉnh sửa vị trí thiết bị này');
+
+        if (!device.sensorPositions) {
+            device.sensorPositions = new Map();
+        }
+
+        const existing = device.sensorPositions.get(sensorType);
+        device.sensorPositions.set(sensorType, { 
+            spaceX, 
+            spaceY,
+            displayName: displayName !== undefined ? displayName : (existing?.displayName || '')
+        });
+
+        const savedDevice = await device.save();
+        return this.mapToDeviceResponse(savedDevice);
     }
 }
