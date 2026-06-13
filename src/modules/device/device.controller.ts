@@ -167,4 +167,53 @@ export class DeviceController {
       });
     }
   };
+
+  // 1. Lấy lịch sử dữ liệu môi trường nhà nấm
+  getTelemetryHistory = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const houseId = req.params.houseId as string;
+      const range = typeof req.query.range === 'string' ? req.query.range : '24h'; // Mặc định là 24h nếu không truyền
+      if (!houseId) {
+        res.status(400).json({ success: false, message: 'Thiếu mã nhà nấm (houseId)' });
+        return;
+      }
+      // Gọi service xử lý MongoDB Aggregation
+      const historyData = await this.deviceService.getTelemetryHistory(houseId, range, req.user.id);
+      res.status(200).json({
+        success: true,
+        message: 'Lấy lịch sử dữ liệu môi trường thành công',
+        data: historyData,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Lấy lịch sử thất bại',
+      });
+    }
+  };
+  // 2. So sánh chỉ số trung bình hiện tại giữa các nhà nấm của tài khoản sở hữu
+  getHousesComparison = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      // Lấy báo cáo so sánh độ ẩm/nhiệt độ trung bình giữa các nhà nấm trong 7 ngày qua
+      const comparisonData = await this.deviceService.getHousesComparison(req.user.id);
+      res.status(200).json({
+        success: true,
+        message: 'Lấy dữ liệu so sánh nhà nấm thành công',
+        data: comparisonData,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Lấy dữ liệu so sánh thất bại',
+      });
+    }
+  };
 }

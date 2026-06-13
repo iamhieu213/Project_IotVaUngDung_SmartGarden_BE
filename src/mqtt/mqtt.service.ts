@@ -5,49 +5,14 @@ import SensorData from '../models/SensorData';
 import redisClient from '../configs/redis';
 import { io } from '../server';
 import { DeviceService } from '../modules/device/device.service';
-import Alert from '../models/Alert'
+import { AlertService } from '../modules/alert/alert.service';
 
 export class MqttService {
   private client: mqtt.MqttClient | null = null;
   private brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
   private thingsboardHost = process.env.THINGSBOARD_HOST || 'http://localhost:8080';
   private deviceService = new DeviceService(); // Khởi tạo service để dùng chung hàm map dữ liệu chuẩn
-
-  private async createAndEmitAlert(
-    houseId: string,
-    deviceId: string,
-    deviceName: string,
-    title: string,
-    message: string,
-    type: 'critical' | 'warning'
-  ): Promise<void> {
-    try {
-      // 1. Lưu cảnh báo vào Database
-      const newAlert = new Alert({
-        house: houseId,
-        deviceId,
-        deviceName,
-        title,
-        message,
-        type,
-      });
-      const savedAlert = await newAlert.save();
-      // 2. Phát thông báo thời gian thực về Frontend qua Socket.io
-      io.emit('new_alert', {
-        id: savedAlert._id,
-        houseId,
-        deviceId,
-        deviceName,
-        title,
-        message,
-        type,
-        createdAt: savedAlert.createdAt
-      });
-      console.log(`[Cảnh báo] Đã lưu & phát cảnh báo: "${title}" cho mạch "${deviceName}" (${deviceId})`);
-    } catch (err) {
-      console.error('[Cảnh báo Error] Không thể tạo và phát cảnh báo:', err);
-    }
-  }
+  private alertService = new AlertService(); // Dịch vụ quản lý và tạo cảnh báo chuyên biệt
 
   connect(): void {
     console.log(`[MQTT] Đang kết nối tới Broker tại: ${this.brokerUrl}...`);
@@ -96,8 +61,8 @@ export class MqttService {
           const statusVal = message.toString(); // "online" hoặc "offline"
           console.log(`[MQTT Trạng thái] Thiết bị ${deviceId} báo trạng thái: ${statusVal}`);
 
-          // Tìm thiết bị trong MongoDB
-          const device = await Device.findOne({ deviceId });
+          // Tìm thiết bị trong MongoDB và populate để lấy thông tin nhà nấm
+          const device = await Device.findOne({ deviceId }).populate('house');
           if (device) {
             // Cập nhật trạng thái
             device.status = statusVal as 'online' | 'offline';
@@ -112,13 +77,12 @@ export class MqttService {
 
             console.log(`[MQTT Trạng thái] Đã cập nhật trạng thái ${statusVal} và đồng bộ Socket.io cho ${deviceId}.`);
 
-            //Phat canh bao neu thiet bi bi mat ket noi
-            if (statusVal === 'offline' && device) {
-              // 1. Lấy tên nhà nấm và ID nhà nấm từ quan hệ đã populate
-              const houseName = (device.house as any).name || 'Chưa xác định';
+            // Phát cảnh báo nếu thiết bị bị mất kết nối (Offline)
+            if (statusVal === 'offline') {
               const houseId = (device.house as any)._id.toString();
-              await this.createAndEmitAlert(
-                houseId, // Truyền ID nhà nấm
+              const houseName = (device.house as any).name || 'Chưa xác định';
+              await this.alertService.createAndEmitAlert(
+                houseId,
                 deviceId,
                 device.name,
                 'Mạch điều khiển Offline',
@@ -137,10 +101,10 @@ export class MqttService {
           const payload = JSON.parse(message.toString());
           const { temperature, humidity, soilMoisture, lightLevel } = payload;
 
-          console.log(`[MQTT Dữ liệu] Nhận dữ liệu từ ${deviceId}: Nhệt độ: ${temperature}°C, Độ ẩm: ${humidity}%, Độ ẩm đất: ${soilMoisture}, Ánh sáng: ${lightLevel} lx`);
+          console.log(`[MQTT Dữ liệu] Nhận dữ liệu từ ${deviceId}: Nhiệt độ: ${temperature}°C, Độ ẩm: ${humidity}%, Độ ẩm đất: ${soilMoisture}%, Ánh sáng: ${lightLevel} lx`);
 
-          // 1. Kiểm tra thiết bị trong MongoDB
-          const device = await Device.findOne({ deviceId });
+          // 1. Kiểm tra thiết bị trong MongoDB và populate thông tin nhà nấm liên kết
+          const device = await Device.findOne({ deviceId }).populate('house');
 
           if (!device) {
             // AUTO-DISCOVERY: Thiết bị chưa đăng ký -> Lưu vào Redis hàng chờ trong 5 phút
@@ -169,7 +133,15 @@ export class MqttService {
           const deviceResponse = await this.deviceService.mapToDeviceResponse(savedDevice);
           io.emit('device_update', deviceResponse);
 
-          // 4. CHUYỂN TIẾP LÊN THINGSBOARD CLOUD
+          // 4. KIỂM TRA CHỈ SỐ CẢM BIẾN VƯỢT NGƯỠNG QUA ALERTSERVICE
+          const houseId = (device.house as any)._id.toString();
+          await this.alertService.checkTelemetryThresholds(houseId, deviceId, device.name, {
+            temperature: temperature || 0,
+            humidity: humidity || 0,
+            soilMoisture: soilMoisture || 0
+          });
+
+          // 5. CHUYỂN TIẾP LÊN THINGSBOARD CLOUD
           const tbToken = await redisClient.get(`tb_token:${deviceId}`);
           if (tbToken) {
             const tbUrl = `${this.thingsboardHost}/api/v1/${tbToken}/telemetry`;
