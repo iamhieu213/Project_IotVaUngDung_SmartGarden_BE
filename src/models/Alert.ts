@@ -41,11 +41,11 @@ const AlertSchema = new Schema<IAlert>(
     },
     resolved: {
       type: Boolean,
-      default: false, 
+      default: false,
     },
   },
   {
-    timestamps: true, // Tự động quản lý createdAt và updatedAt
+    timestamps: true,
   }
 );
 

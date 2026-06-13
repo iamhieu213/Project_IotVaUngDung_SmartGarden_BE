@@ -159,10 +159,10 @@ export class DeviceService {
 
     // Hàm cập nhật tọa độ cho từng cảm biến thành phần
     async updateSensorPosition(
-        deviceId: string, 
-        sensorType: string, 
-        spaceX: number, 
-        spaceY: number, 
+        deviceId: string,
+        sensorType: string,
+        spaceX: number,
+        spaceY: number,
         displayName: string | undefined,
         ownerId: string
     ): Promise<DeviceResponse> {
@@ -177,13 +177,150 @@ export class DeviceService {
         }
 
         const existing = device.sensorPositions.get(sensorType);
-        device.sensorPositions.set(sensorType, { 
-            spaceX, 
+        device.sensorPositions.set(sensorType, {
+            spaceX,
             spaceY,
             displayName: displayName !== undefined ? displayName : (existing?.displayName || '')
         });
 
         const savedDevice = await device.save();
         return this.mapToDeviceResponse(savedDevice);
+    }
+
+    // Nghiệp vụ A: Tính toán lịch sử gộp nhóm
+    async getTelemetryHistory(houseId: string, range: string, ownerId: string) {
+        // 1. Xác thực quyền sở hữu nhà nấm
+        const house = await House.findOne({ _id: houseId, owner: ownerId });
+        if (!house) throw new Error('Nhà nấm không tồn tại hoặc bạn không có quyền truy cập');
+        // 2. Lấy danh sách ID của các thiết bị thuộc nhà nấm này
+        const devices = await Device.find({ house: houseId });
+        const deviceIds = devices.map(d => d._id);
+        if (deviceIds.length === 0) {
+            return []; // Nhà nấm chưa có thiết bị nào
+        }
+        // 3. Tính mốc thời gian bắt đầu quét dữ liệu dựa vào range
+        const now = new Date();
+        let startDate = new Date();
+        let groupByFormat: any = {}; // Định dạng để group dữ liệu
+        if (range === '24h') {
+            startDate.setHours(now.getHours() - 24);
+            // Group theo Năm - Tháng - Ngày - Giờ
+            groupByFormat = {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' },
+                day: { $dayOfMonth: '$createdAt' },
+                hour: { $hour: '$createdAt' }
+            };
+        } else if (range === '7d') {
+            startDate.setDate(now.getDate() - 7);
+            // Group theo Năm - Tháng - Ngày
+            groupByFormat = {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' },
+                day: { $dayOfMonth: '$createdAt' }
+            };
+        } else if (range === '30d') {
+            startDate.setDate(now.getDate() - 30);
+            // Group theo Năm - Tháng - Ngày
+            groupByFormat = {
+                year: { $year: '$createdAt' },
+                month: { $month: '$createdAt' },
+                day: { $dayOfMonth: '$createdAt' }
+            };
+        } else {
+            throw new Error('Khoảng thời gian (range) không được hỗ trợ');
+        }
+        // 4. Chạy MongoDB Aggregation Pipeline
+        const rawData = await SensorData.aggregate([
+            // Bước 1: Lọc dữ liệu theo mốc thời gian và danh sách thiết bị thuộc nhà nấm
+            {
+                $match: {
+                    device: { $in: deviceIds },
+                    createdAt: { $gte: startDate }
+                }
+            },
+            // Bước 2: Group và tính trung bình cộng ($avg) của các cảm biến trong khung giờ/ngày
+            {
+                $group: {
+                    _id: groupByFormat,
+                    avgTemperature: { $avg: '$temperature' },
+                    avgHumidity: { $avg: '$humidity' },
+                    avgSoilMoisture: { $avg: '$soilMoisture' },
+                    avgLightIntensity: { $avg: '$lightIntensity' }
+                }
+            },
+            // Bước 3: Sắp xếp theo thứ tự thời gian tăng dần (cũ đến mới)
+            {
+                $sort: {
+                    '_id.year': 1,
+                    '_id.month': 1,
+                    '_id.day': 1,
+                    '_id.hour': 1
+                }
+            }
+        ]);
+        // 5. Format lại kết quả gửi về cho Frontend dễ vẽ biểu đồ
+        return rawData.map(item => {
+            let label = '';
+            if (range === '24h') {
+                // Ví dụ label: "14:00"
+                label = `${String(item._id.hour).padStart(2, '0')}:00`;
+            } else {
+                // Ví dụ label: "12/06"
+                label = `${String(item._id.day).padStart(2, '0')}/${String(item._id.month).padStart(2, '0')}`;
+            }
+            return {
+                time: label,
+                // Làm tròn đến 1 chữ số thập phân
+                temperature: Math.round(item.avgTemperature * 10) / 10,
+                humidity: Math.round(item.avgHumidity * 10) / 10,
+                soilMoisture: Math.round(item.avgSoilMoisture * 10) / 10,
+                lightIntensity: Math.round(item.avgLightIntensity),
+            };
+        });
+    }
+    // Nghiệp vụ B: So sánh chỉ số trung bình 7 ngày qua giữa các nhà nấm
+    async getHousesComparison(ownerId: string) {
+        // 1. Tìm toàn bộ nhà nấm của User
+        const userHouses = await House.find({ owner: ownerId });
+        if (userHouses.length === 0) return [];
+        const comparisonResults = [];
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        // Quét từng nhà nấm để tính trung bình cộng chỉ số trong 7 ngày
+        for (const house of userHouses) {
+            const devices = await Device.find({ house: house._id });
+            const deviceIds = devices.map(d => d._id);
+            let avgTemp = 0;
+            let avgHum = 0;
+            if (deviceIds.length > 0) {
+                const stats = await SensorData.aggregate([
+                    {
+                        $match: {
+                            device: { $in: deviceIds },
+                            createdAt: { $gte: sevenDaysAgo }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: null,
+                            temp: { $avg: '$temperature' },
+                            hum: { $avg: '$humidity' }
+                        }
+                    }
+                ]);
+                if (stats.length > 0) {
+                    avgTemp = Math.round(stats[0].temp * 10) / 10;
+                    avgHum = Math.round(stats[0].hum * 10) / 10;
+                }
+            }
+            comparisonResults.push({
+                houseId: house._id,
+                houseName: house.name,
+                averageTemperature: avgTemp || null,
+                averageHumidity: avgHum || null,
+            });
+        }
+        return comparisonResults;
     }
 }
