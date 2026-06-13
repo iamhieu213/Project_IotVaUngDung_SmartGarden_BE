@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middlewares/auth.middleware';
 import { HouseService } from './house.service';
-import { CreateHouseSchema } from './house.dto';
+import { CreateHouseSchema, UpdateHouseSchema } from './house.dto';
 import { z } from 'zod';
 
 export class HouseController {
@@ -17,7 +17,7 @@ export class HouseController {
         res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
         return;
       }
-      
+
       // Kiểm tra dữ liệu đầu vào
       const houseData = CreateHouseSchema.parse(req.body);
       const result = await this.houseService.createHouse(houseData, req.user.id);
@@ -91,6 +91,49 @@ export class HouseController {
       res.status(500).json({
         success: false,
         message: error.message || 'Lấy chi tiết nhà nấm thất bại',
+      });
+    }
+  };
+
+  updateHouse = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: 'Thiếu mã nhà nấm (id)' });
+        return;
+      }
+      // 1. Validate dữ liệu body gửi lên bằng Zod
+      const updateData = UpdateHouseSchema.parse(req.body);
+
+      // 2. Gọi service cập nhật
+      const result = await this.houseService.updateHouse(id as string, req.user.id, updateData);
+      res.status(200).json({
+        success: true,
+        message: 'Cập nhật nhà nấm thành công',
+        data: result,
+      });
+    } catch (error: any) {
+      // Xử lý lỗi validate dữ liệu đầu vào của Zod
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          success: false,
+          message: 'Dữ liệu cập nhật không hợp lệ',
+          errors: error.issues.map((err) => ({
+            field: String(err.path[0] || ''),
+            message: err.message,
+          })),
+        });
+        return;
+      }
+
+      // Xử lý lỗi hệ thống hoặc không tìm thấy nhà nấm
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Cập nhật nhà nấm thất bại',
       });
     }
   };

@@ -5,8 +5,9 @@ import { AuthController } from './auth.controller';
 const router = Router();
 const authController = new AuthController();
 
-// Đăng ký tài khoản
-router.post('/register', authController.register);
+// Đăng ký tài khoản (Luồng OTP 2 bước)
+router.post('/register-request', authController.registerRequest);
+router.post('/register-verify', authController.registerVerify);
 
 // Đăng nhập tài khoản (Trả về Access và Refresh Token)
 router.post('/login', authController.login);
@@ -17,10 +18,9 @@ router.post('/refresh-token', authController.refreshToken);
 // Đăng xuất tài khoản (Xóa Refresh Token ở Redis)
 router.post('/logout', authController.logout);
 
-// Yêu cầu lấy mã quên mật khẩu (Lưu Redis)
+// Quên mật khẩu & Reset (Luồng OTP 3 bước)
 router.post('/forgot-password', authController.forgotPassword);
-
-// Xác nhận đặt lại mật khẩu mới
+router.post('/verify-reset-otp', authController.verifyResetOtp);
 router.post('/reset-password', authController.resetPassword);
 
 export default router;
