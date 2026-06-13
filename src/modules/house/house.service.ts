@@ -1,5 +1,5 @@
 import House, { IHouse } from '../../models/House'
-import { CreateHouseDto, HouseResponse } from './house.dto'
+import { CreateHouseDto, HouseResponse, UpdateHouseDto } from './house.dto'
 
 export class HouseService {
     private mapToHouseResponse(house: IHouse): HouseResponse {
@@ -36,5 +36,19 @@ export class HouseService {
         const house = await House.findOne({ _id: houseId, owner: ownerId });
         if (!house) return null;
         return this.mapToHouseResponse(house);
+    }
+
+    async updateHouse(houseId: string, ownerId : string, dto: UpdateHouseDto) {
+        const updateHouse = await House.findOneAndUpdate(
+            { _id : houseId, owner : ownerId },
+            {$set : dto},
+            { new : true }
+        );
+
+        if(!updateHouse) {
+            throw new Error('Không tìm thấy nhà nấm hoặc bạn không có quyển cập nhật');
+        }
+
+        return this.mapToHouseResponse(updateHouse);
     }
 }

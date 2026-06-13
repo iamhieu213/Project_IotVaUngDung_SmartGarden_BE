@@ -18,3 +18,12 @@ export interface HouseResponse {
     owner: string;
     createdAt: Date;
 }
+
+export const UpdateHouseSchema = z.object({
+  name : z.string().min(1, 'Tên nhà nấm không được để trống').optional(),
+  address: z.string().min(1, 'Địa chỉ không được để trống').optional(),
+  width: z.number().nonnegative('Chiều rộng phải lớn hơn hoặc bằng 0').optional(),
+  height: z.number().nonnegative('Chiều cao/dài phải lớn hơn hoặc bằng 0').optional(),
+});
+
+export type UpdateHouseDto = z.infer<typeof UpdateHouseSchema>

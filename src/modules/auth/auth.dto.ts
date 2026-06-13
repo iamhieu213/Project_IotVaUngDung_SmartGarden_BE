@@ -1,44 +1,55 @@
 export interface RegisterDto {
-    username : string;
-    email: string;
-    password: string;
+  username: string;
+  email: string;
+  password: string;
 }
 
 export interface UserResponse {
-    id: string;
-    username: string;
-    email : string;
-    createdAt : Date;
+  id: string;
+  username: string;
+  email: string;
+  createdAt: Date;
 }
 
 export interface LoginDto {
-    email : string;
-    password: string;
+  email: string;
+  password: string;
 }
 
-// DTO phản hồi khi Đăng nhập thành công (Trả về cả 2 token)
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
   user: UserResponse;
 }
-// DTO đầu vào cho API làm mới token
+
 export interface RefreshTokenDto {
   refreshToken: string;
 }
-// DTO phản hồi từ API làm mới token
+
 export interface RefreshTokenResponse {
   accessToken: string;
   refreshToken: string;
 }
 
 export interface ForgotPasswordDto {
-    email : string;
+  email: string;
 }
 
+// DTO Bước 2: Xác thực OTP quên mật khẩu (nhập email + OTP)
+export interface VerifyResetOtpDto {
+  email: string;
+  otp: string;
+}
+
+// DTO Bước 3: Đặt mật khẩu mới (BỎ dấu ? ở hai trường mật khẩu để bắt buộc truyền dữ liệu)
 export interface ResetPasswordDto {
-    token : string;
-    newPassword: string;
-    confirmPassword: string;
+  resetToken: string;
+  newPassword: string;
+  confirmPassword: string;
 }
 
+// DTO Xác thực OTP khi đăng ký tài khoản mới
+export interface RegisterVerifyDto {
+  email: string;
+  otp: string;
+}
