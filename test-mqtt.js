@@ -9,18 +9,22 @@ const client = mqtt.connect('mqtt://localhost:1883', {
 client.on('connect', () => {
   console.log('Đã kết nối tới MQTT Broker thành công!');
   
-  const deviceId = 'SG-PUMP-001'; // Bạn hãy thay bằng deviceId thực tế trong DB của bạn
+  const deviceId = 'SG-PUMP-002'; // Bạn hãy thay bằng deviceId thực tế trong DB của bạn
 
   // 1. Gửi trạng thái online để kích hoạt thiết bị
   client.publish(`smartgarden/devices/${deviceId}/status`, 'online');
   console.log(`Đã báo thiết bị [${deviceId}] ONLINE`);
 
-  // 2. Thiết lập dữ liệu cảm biến (Nhiệt độ 35 độ C vượt ngưỡng an toàn để kích hoạt cảnh báo)
+  // 2. Thiết lập dữ liệu cảm biến (Nhiệt độ vượt ngưỡng hoặc các chỉ số mẫu)
   const mockData = {
-    temperature: 28,   // Ngưỡng an toàn là 15 - 32 (gửi 35 để báo Nhiệt độ quá cao)
-    humidity: 85,      // Ngưỡng an toàn 70 - 98
-    soilMoisture: 60,  // Ngưỡng an toàn >= 50
-    lightLevel: 400
+    temperature1: 27.5,
+    humidity1: 82.0,
+    temperature2: 28,
+    humidity2: 80.5,
+    soilMoisture1: 58,
+    soilMoisture2: 65,
+    waterLevel1: 45,
+    lightIntensity2: 620
   };
 
   // Gửi gói tin dữ liệu cảm biến dạng JSON

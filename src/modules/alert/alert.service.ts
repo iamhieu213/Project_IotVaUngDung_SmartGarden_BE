@@ -26,6 +26,17 @@ export class AlertService {
     message: string,
     type: 'critical' | 'warning'
   ): Promise<AlertResponse> {
+    // Tránh trùng lặp cảnh báo đang kích hoạt (chưa được resolve)
+    const existingAlert = await Alert.findOne({
+      house: houseId,
+      deviceId,
+      title,
+      resolved: false
+    });
+    if (existingAlert) {
+      return this.mapToAlertResponse(existingAlert);
+    }
+
     const newAlert = new Alert({
       house: houseId,
       deviceId,
@@ -78,91 +89,131 @@ export class AlertService {
     }
   }
 
-  // Hàm chuyên trách kiểm tra các ngưỡng đo đạc môi trường
+  // Hàm chuyên trách kiểm tra các ngưỡng đo đạc môi trường (Hỗ trợ nhiều cảm biến động)
   async checkTelemetryThresholds(
     houseId: string,
     deviceId: string,
     deviceName: string,
-    telemetry: { temperature: number; humidity: number; soilMoisture: number }
+    readings: Map<string, number> | Record<string, number>
   ): Promise<void> {
-    const { temperature, humidity, soilMoisture } = telemetry;
+    const readingsMap = readings instanceof Map ? readings : new Map(Object.entries(readings));
 
-    // 1. Kiểm tra nhiệt độ (15°C - 32°C)
-    if (temperature > 32) {
-      await this.createAndEmitAlert(
-        houseId,
-        deviceId,
-        deviceName,
-        'Nhiệt độ quá cao',
-        `Nhiệt độ đo được là ${temperature}°C, vượt ngưỡng an toàn (32°C) tại mạch "${deviceName}".`,
-        'warning'
-      );
-    } else if (temperature < 15) {
-      await this.createAndEmitAlert(
-        houseId,
-        deviceId,
-        deviceName,
-        'Nhiệt độ quá thấp',
-        `Nhiệt độ hạ xuống ${temperature}°C, thấp hơn ngưỡng tối thiểu (15°C) tại mạch "${deviceName}".`,
-        'warning'
-      );
-    } else {
-      // Nằm trong dải an toàn: Tự động khôi phục các cảnh báo nhiệt độ cũ
-      await this.resolveActiveAlerts(
-        houseId,
-        deviceId,
-        'Nhiệt độ',
-        `Nhiệt độ tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${temperature}°C.`
-      );
+    // 1. Kiểm tra Nhiệt độ (quét mọi cảm biến bắt đầu bằng 'temperature')
+    let maxTemp = -999;
+    let minTemp = 999;
+    let hasTemp = false;
+
+    readingsMap.forEach((val, key) => {
+      if (key.startsWith('temperature') && typeof val === 'number') {
+        hasTemp = true;
+        if (val > maxTemp) maxTemp = val;
+        if (val < minTemp) minTemp = val;
+      }
+    });
+
+    if (hasTemp) {
+      if (maxTemp > 32) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Nhiệt độ quá cao',
+          `Nhiệt độ đo được là ${maxTemp}°C, vượt ngưỡng an toàn (32°C) tại mạch "${deviceName}".`,
+          'warning'
+        );
+      } else if (minTemp < 15) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Nhiệt độ quá thấp',
+          `Nhiệt độ hạ xuống ${minTemp}°C, thấp hơn ngưỡng tối thiểu (15°C) tại mạch "${deviceName}".`,
+          'warning'
+        );
+      } else {
+        // Nằm trong dải an toàn: Tự động khôi phục các cảnh báo nhiệt độ cũ
+        await this.resolveActiveAlerts(
+          houseId,
+          deviceId,
+          'Nhiệt độ',
+          `Nhiệt độ tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${maxTemp}°C.`
+        );
+      }
     }
 
-    // 2. Kiểm tra độ ẩm không khí (70% - 98%)
-    if (humidity < 70) {
-      await this.createAndEmitAlert(
-        houseId,
-        deviceId,
-        deviceName,
-        'Độ ẩm không khí thấp',
-        `Độ ẩm không khí giảm còn ${humidity}%, phôi nấm có nguy cơ bị héo khô!`,
-        'critical'
-      );
-    } else if (humidity > 98) {
-      await this.createAndEmitAlert(
-        houseId,
-        deviceId,
-        deviceName,
-        'Độ ẩm không khí quá cao',
-        `Độ ẩm không khí bão hòa ${humidity}%, cần mở quạt thông gió tránh úng nước gốc nấm.`,
-        'warning'
-      );
-    } else {
-      // Nằm trong dải an toàn: Tự động khôi phục cảnh báo độ ẩm không khí
-      await this.resolveActiveAlerts(
-        houseId,
-        deviceId,
-        'Độ ẩm không khí',
-        `Độ ẩm không khí tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${humidity}%.`
-      );
+    // 2. Kiểm tra Độ ẩm không khí (quét mọi cảm biến bắt đầu bằng 'humidity')
+    let maxHum = -999;
+    let minHum = 999;
+    let hasHum = false;
+
+    readingsMap.forEach((val, key) => {
+      if (key.startsWith('humidity') && typeof val === 'number') {
+        hasHum = true;
+        if (val > maxHum) maxHum = val;
+        if (val < minHum) minHum = val;
+      }
+    });
+
+    if (hasHum) {
+      if (minHum < 70) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Độ ẩm không khí thấp',
+          `Độ ẩm không khí giảm còn ${minHum}%, phôi nấm có nguy cơ bị héo khô!`,
+          'critical'
+        );
+      } else if (maxHum > 98) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Độ ẩm không khí quá cao',
+          `Độ ẩm không khí bão hòa ${maxHum}%, cần mở quạt thông gió tránh úng nước gốc nấm.`,
+          'warning'
+        );
+      } else {
+        // Nằm trong dải an toàn: Tự động khôi phục cảnh báo độ ẩm không khí
+        await this.resolveActiveAlerts(
+          houseId,
+          deviceId,
+          'Độ ẩm không khí',
+          `Độ ẩm không khí tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${minHum}%.`
+        );
+      }
     }
 
-    // 3. Kiểm tra độ ẩm đất/giá thể (>= 50%)
-    if (soilMoisture < 50) {
-      await this.createAndEmitAlert(
-        houseId,
-        deviceId,
-        deviceName,
-        'Độ ẩm giá thể khô',
-        `Độ ẩm đất/giá thể đang ở mức thấp ${soilMoisture}%. Hãy bật hệ thống tưới.`,
-        'warning'
-      );
-    } else {
-      // Nằm trong dải an toàn: Tự động khôi phục cảnh báo độ ẩm đất
-      await this.resolveActiveAlerts(
-        houseId,
-        deviceId,
-        'Độ ẩm giá thể',
-        `Độ ẩm đất/giá thể tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${soilMoisture}%.`
-      );
+    // 3. Kiểm tra Độ ẩm đất (quét mọi cảm biến bắt đầu bằng 'soilMoisture')
+    let minSoil = 999;
+    let hasSoil = false;
+
+    readingsMap.forEach((val, key) => {
+      if (key.startsWith('soilMoisture') && typeof val === 'number') {
+        hasSoil = true;
+        if (val < minSoil) minSoil = val;
+      }
+    });
+
+    if (hasSoil) {
+      if (minSoil < 50) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Độ ẩm giá thể khô',
+          `Độ ẩm đất/giá thể đang ở mức thấp ${minSoil}%. Hãy bật hệ thống tưới.`,
+          'warning'
+        );
+      } else {
+        // Nằm trong dải an toàn: Tự động khôi phục cảnh báo độ ẩm đất
+        await this.resolveActiveAlerts(
+          houseId,
+          deviceId,
+          'Độ ẩm giá thể',
+          `Độ ẩm đất/giá thể tại mạch "${deviceName}" đã trở lại ngưỡng an toàn: ${minSoil}%.`
+        );
+      }
     }
   }
 

@@ -2,15 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISensorData extends Document {
     device: mongoose.Types.ObjectId;
-
-    temperature: number;
-
-    humidity: number;
-
-    soilMoisture: number;
-
-    lightIntensity: number;
-
+    readings: Map<string, number>; // Map lưu động mọi key số
     createdAt: Date;
 }
 
@@ -21,33 +13,15 @@ const SensorDataSchema = new Schema<ISensorData>(
             ref: 'Device',
             required: true,
         },
-
-        temperature: {
-            type: Number,
-            default: 0,
-        },
-
-        humidity: {
-            type: Number,
-            default: 0,
-        },
-
-        soilMoisture: {
-            type: Number,
-            default: 0,
-        },
-
-        lightIntensity: {
-            type: Number,
-            default: 0,
-        },
+        readings: {
+            type: Map,
+            of: Number,
+            default: {}
+        }
     },
     {
         timestamps: true,
     }
 );
 
-export default mongoose.model<ISensorData>(
-    'SensorData',
-    SensorDataSchema
-);
+export default mongoose.model<ISensorData>('SensorData', SensorDataSchema);

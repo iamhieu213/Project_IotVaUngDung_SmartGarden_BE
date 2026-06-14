@@ -168,6 +168,39 @@ export class DeviceController {
     }
   };
 
+  // Xóa hoàn toàn cấu hình cảm biến khỏi thiết bị
+  deleteSensorPosition = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const { id, sensorKey } = req.params;
+
+      if (!id || !sensorKey) {
+        res.status(400).json({ success: false, message: 'Thiếu mã thiết bị hoặc loại cảm biến' });
+        return;
+      }
+
+      const result = await this.deviceService.deleteSensorPosition(
+        id as string,
+        String(sensorKey),
+        req.user.id
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Xóa cảm biến khỏi thiết bị thành công',
+        data: result,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Xóa cảm biến thất bại',
+      });
+    }
+  };
+
   // 1. Lấy lịch sử dữ liệu môi trường nhà nấm
   getTelemetryHistory = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {

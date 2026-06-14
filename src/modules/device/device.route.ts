@@ -15,6 +15,7 @@ router.post('/create', deviceController.createDevice as any);
 router.get('/house/:houseId', deviceController.getDevicesByHouse as any);
 router.delete('/:id', deviceController.deleteDevice as any);
 router.put('/:id/sensor-position', deviceController.updateSensorPosition as any);
+router.delete('/:id/sensor-position/:sensorKey', deviceController.deleteSensorPosition as any);
 
 // 1. API lấy dữ liệu lịch sử môi trường gộp nhóm theo khoảng thời gian (24h, 7 ngày, 30 ngày)
 router.get('/house/:houseId/telemetry-history', deviceController.getTelemetryHistory as any);
