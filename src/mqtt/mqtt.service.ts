@@ -99,9 +99,6 @@ export class MqttService {
         // ==========================================
         if (messageType === 'data') {
           const payload = JSON.parse(message.toString());
-          const { temperature, humidity, soilMoisture, lightLevel } = payload;
-
-          console.log(`[MQTT Dữ liệu] Nhận dữ liệu từ ${deviceId}: Nhiệt độ: ${temperature}°C, Độ ẩm: ${humidity}%, Độ ẩm đất: ${soilMoisture}%, Ánh sáng: ${lightLevel} lx`);
 
           // 1. Kiểm tra thiết bị trong MongoDB và populate thông tin nhà nấm liên kết
           const device = await Device.findOne({ deviceId }).populate('house');
@@ -110,21 +107,39 @@ export class MqttService {
             // AUTO-DISCOVERY: Thiết bị chưa đăng ký -> Lưu vào Redis hàng chờ trong 5 phút
             await redisClient.set(`unregistered_device:${deviceId}`, new Date().toISOString(), { EX: 300 });
             console.log(`[MQTT Auto-Discovery] Phát hiện thiết bị mới: ${deviceId}. Đã đưa vào hàng chờ.`);
+            
+            // Đồng bộ qua Socket.io để Frontend biết có thiết bị chưa đăng ký
+            io.emit('new_unregistered_device', deviceId);
             return;
           }
 
-          // 2. Lưu dữ liệu cảm biến vào MongoDB
+          // 2. Lưu động mọi key có giá trị là số
+          const readingsMap = new Map<string, number>();
+          for (const [key, val] of Object.entries(payload)) {
+            if (typeof val === 'number') {
+              readingsMap.set(key, val);
+            }
+          }
+
+          // 3. Lưu dữ liệu cảm biến vào MongoDB
           const newSensorData = new SensorData({
             device: device._id,
-            temperature: temperature || 0,
-            humidity: humidity || 0,
-            soilMoisture: soilMoisture || 0,
-            lightIntensity: lightLevel || 0,
+            readings: readingsMap,
           });
           await newSensorData.save();
-          console.log(`[MQTT Cục Bộ] Đã lưu dữ liệu đo cho ${deviceId} vào MongoDB.`);
 
-          // 3. Cập nhật lastSeen và status online (đề phòng trường hợp LWT bị miss gói tin online)
+          // 3.5. Kiểm tra các ngưỡng đo đạc để kích hoạt cảnh báo nếu có
+          if (device.house) {
+            const houseId = (device.house as any)._id?.toString() || device.house.toString();
+            await this.alertService.checkTelemetryThresholds(
+              houseId,
+              deviceId,
+              device.name,
+              readingsMap
+            );
+          }
+
+          // 4. Cập nhật lastSeen và status online
           device.status = 'online';
           device.lastSeen = new Date();
           const savedDevice = await device.save();
@@ -132,27 +147,6 @@ export class MqttService {
           // Ánh xạ dữ liệu đầy đủ để gửi Socket.io về Frontend
           const deviceResponse = await this.deviceService.mapToDeviceResponse(savedDevice);
           io.emit('device_update', deviceResponse);
-
-          // 4. KIỂM TRA CHỈ SỐ CẢM BIẾN VƯỢT NGƯỠNG QUA ALERTSERVICE
-          const houseId = (device.house as any)._id.toString();
-          await this.alertService.checkTelemetryThresholds(houseId, deviceId, device.name, {
-            temperature: temperature || 0,
-            humidity: humidity || 0,
-            soilMoisture: soilMoisture || 0
-          });
-
-          // 5. CHUYỂN TIẾP LÊN THINGSBOARD CLOUD
-          const tbToken = await redisClient.get(`tb_token:${deviceId}`);
-          if (tbToken) {
-            const tbUrl = `${this.thingsboardHost}/api/v1/${tbToken}/telemetry`;
-            await axios.post(tbUrl, {
-              temperature: temperature || 0,
-              humidity: humidity || 0,
-              soilMoisture: soilMoisture || 0,
-              lightIntensity: lightLevel || 0
-            });
-            console.log(`[ThingsBoard] Đã chuyển tiếp thành công dữ liệu của ${deviceId} lên ThingsBoard.`);
-          }
         }
       } catch (err: any) {
         console.error('[MQTT Error] Lỗi xử lý tin nhắn:', err.message);

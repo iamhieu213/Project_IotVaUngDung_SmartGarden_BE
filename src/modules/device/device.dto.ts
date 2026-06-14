@@ -29,11 +29,8 @@ export interface DeviceResponse {
     sensorPositions?: Record<string, { spaceX: number; spaceY: number; displayName?: string }>;
     createdAt: Date;
     latestTelemetry?: {
-        temperature: number;
-        humidity: number;
-        soilMoisture: number;
-        lightIntensity: number;
         createdAt: Date;
+        [key: string]: any;
     } | null;
 }
 
