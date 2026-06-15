@@ -1,9 +1,12 @@
 import Device, { IDevice } from '../../models/Device'
 import House from '../../models/House'
+import { io } from '../../server'
 import redisClient from '../../configs/redis'
 import SensorData from '../../models/SensorData'
-import { CreateDeviceDto, DeviceResponse } from './device.dto'
+import { CreateDeviceDto, DeviceResponse, AssignPresetDto } from './device.dto'
 import axios from 'axios'
+import { mqttService } from '../../mqtt/mqtt.service';
+import Preset from '../../models/Preset';
 
 export class DeviceService {
     async mapToDeviceResponse(device: IDevice): Promise<DeviceResponse> {
@@ -29,7 +32,7 @@ export class DeviceService {
             deviceId: device.deviceId,
             name: device.name,
             status: device.status,
-            house: device.house.toString(),
+            house: (device.house as any)._id ? (device.house as any)._id.toString() : device.house.toString(),
             lastSeen: device.lastSeen,
             thingsboardAccessToken: tbToken,
             sensorPositions: sensorPositionsObj,
@@ -38,6 +41,9 @@ export class DeviceService {
                 ...Object.fromEntries(latestData.readings),
                 createdAt: latestData.createdAt,
             } : null,
+
+            pumpState: device.pumpState || 'off',
+            activePreset: device.activePreset ? device.activePreset.toString() : null,
         };
     }
 
@@ -64,6 +70,41 @@ export class DeviceService {
             console.error('Lỗi khi đăng ký thiết bị tự động trên ThingsBoard:', error.response?.data || error.message);
             throw new Error('Đăng ký tự động thất bại: ' + (error.response?.data?.message || error.message));
         }
+
+    }
+
+    async controlDevice(deviceId: string, type: string, action: 'on' | 'off', ownerId : string) {
+        const device = await Device.findById(deviceId);
+        if(!device) throw new Error('Thiết bị không tồn tại');
+
+        //Kiem tra quyen chu so huu nha
+        const house = await House.findOne({ _id : device.house, owner: ownerId });
+        if (!house) throw new Error('Bạn không có quyền điều khiển thiết bị này');
+
+        //3.Bat buoc esp32 phai hoat dong thi moi co the gui lenh
+        if(device.status !== 'online'){
+            throw new Error('Mạch điều khiển hiện đang ngoại tuyến (Offline), không thể nhận lệnh');
+        }
+
+        if(type !== 'pump'){
+            throw new Error('Loại thiết bị điều khiển không được hỗ trợ');
+        }
+
+        //Gui lenh MQTT xuong esp32
+        const mqttVal = action === 'on' ? 1 : 0;
+        const topic = `smartgarden/devices/${device.deviceId}/control`;
+        const payload = JSON.stringify({ pump: mqttVal });
+
+        mqttService.publish(topic, payload);
+
+        //Cap nhat trang thai bat/tat vao database
+        device.pumpState = action;
+        const savedDevice = await device.save();
+
+        const response = await this.mapToDeviceResponse(savedDevice);
+        io.emit('device_update', response);
+
+        return response;
 
     }
 
@@ -376,5 +417,32 @@ export class DeviceService {
             });
         }
         return comparisonResults;
+    }
+
+    async assignPreset(deviceId: string, presetId: string | null, ownerId: string): Promise<DeviceResponse> {
+        const device = await Device.findById(deviceId);
+        if (!device) {
+            throw new Error('Thiết bị không tồn tại');
+        }
+
+        // Kiểm tra quyền sở hữu thiết bị thông qua nhà nấm
+        const house = await House.findOne({ _id: device.house, owner: ownerId });
+        if (!house) {
+            throw new Error('Bạn không có quyền quản lý thiết bị này');
+        }
+
+        if (presetId) {
+            // Kiểm tra xem preset có tồn tại và thuộc về user không
+            const presetExists = await Preset.findOne({ _id: presetId, owner: ownerId });
+            if (!presetExists) {
+                throw new Error('Cấu hình preset không tồn tại hoặc không thuộc quyền sở hữu của bạn');
+            }
+            device.activePreset = presetExists._id as any;
+        } else {
+            device.activePreset = null; // Hủy gán
+        }
+
+        const savedDevice = await device.save();
+        return this.mapToDeviceResponse(savedDevice);
     }
 }

@@ -32,5 +32,13 @@ export interface DeviceResponse {
         createdAt: Date;
         [key: string]: any;
     } | null;
+    pumpState?: 'on' | 'off';
+    activePreset?: string | null;
 }
+
+export const AssignPresetSchema = z.object({
+  presetId: z.string().nullable().optional(),
+});
+
+export type AssignPresetDto = z.infer<typeof AssignPresetSchema>;
 
