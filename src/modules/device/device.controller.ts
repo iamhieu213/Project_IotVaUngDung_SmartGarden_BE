@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middlewares/auth.middleware';
 import { DeviceService } from './device.service';
-import { CreateDeviceSchema, UpdateSensorPositionSchema } from './device.dto';
+import { CreateDeviceSchema, UpdateSensorPositionSchema, AssignPresetSchema } from './device.dto';
 import { z } from 'zod';
 
 export class DeviceController {
@@ -246,6 +246,66 @@ export class DeviceController {
       res.status(500).json({
         success: false,
         message: error.message || 'Lấy dữ liệu so sánh thất bại',
+      });
+    }
+  };
+
+  controlDevice = async (req: any, res: any): Promise<void> => {
+    try {
+      const deviceId = req.params.id; // Lấy ID thiết bị từ URL
+      const { type, action } = req.body; // Lấy từ Body: { type: "pump", action: "on"/"off" }
+      const ownerId = req.user?.id; // Lấy ID người dùng từ token đăng nhập (authMiddleware)
+
+      if (!ownerId) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+
+      if (!type || !action) {
+        res.status(400).json({ success: false, message: 'Thiếu thông số type hoặc action cần điều khiển.' });
+        return;
+      }
+      const response = await this.deviceService.controlDevice(deviceId, type, action, ownerId);
+      res.status(200).json({
+        success: true,
+        message: 'Gửi lệnh điều khiển thiết bị thành công',
+        data: response
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  assignPreset = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Chưa xác thực người dùng' });
+        return;
+      }
+      const { id } = req.params;
+      const { presetId } = AssignPresetSchema.parse(req.body);
+
+      const result = await this.deviceService.assignPreset(id as string, presetId || null, req.user.id);
+      res.status(200).json({
+        success: true,
+        message: 'Gán cấu hình preset cho thiết bị thành công',
+        data: result,
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          success: false,
+          message: 'Dữ liệu đầu vào không hợp lệ',
+          errors: error.issues.map((err) => ({
+            field: String(err.path[0] || ''),
+            message: err.message,
+          })),
+        });
+        return;
+      }
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Gán cấu hình preset thất bại',
       });
     }
   };

@@ -9,7 +9,7 @@ const client = mqtt.connect('mqtt://localhost:1883', {
 client.on('connect', () => {
   console.log('Đã kết nối tới MQTT Broker thành công!');
   
-  const deviceId = 'SG-PUMP-002'; // Bạn hãy thay bằng deviceId thực tế trong DB của bạn
+  const deviceId = 'SG-PUMP-001'; // Bạn hãy thay bằng deviceId thực tế trong DB của bạn
 
   // 1. Gửi trạng thái online để kích hoạt thiết bị
   client.publish(`smartgarden/devices/${deviceId}/status`, 'online');
@@ -17,7 +17,7 @@ client.on('connect', () => {
 
   // 2. Thiết lập dữ liệu cảm biến (Nhiệt độ vượt ngưỡng hoặc các chỉ số mẫu)
   const mockData = {
-    temperature1: 27.5,
+    temperature1: 28.5,
     humidity1: 82.0,
     temperature2: 28,
     humidity2: 80.5,

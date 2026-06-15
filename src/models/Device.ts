@@ -12,7 +12,9 @@ export interface IDevice extends Document {
     status: 'online' | 'offline';
     house: mongoose.Types.ObjectId;
     lastSeen?: Date;
-
+    pumpState?: 'on' | 'off'; 
+    activePreset?: mongoose.Types.ObjectId | null;
+    
     sensorPositions?: Map<string, ISensorPosition>;
 }
 
@@ -54,6 +56,18 @@ const DeviceSchema = new Schema<IDevice>(
                 displayName: { type: String, required: false }
             },
             default: {}
+        },
+
+        pumpState: {
+            type: String,
+            enum: ['on', 'off'],
+            default: 'off', // Mặc định máy bơm ở trạng thái tắt
+        },
+
+        activePreset: {
+            type: Schema.Types.ObjectId,
+            ref: 'Preset',
+            default: null,
         },
     },
     {

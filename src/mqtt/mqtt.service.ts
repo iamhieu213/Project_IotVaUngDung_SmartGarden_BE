@@ -6,6 +6,7 @@ import redisClient from '../configs/redis';
 import { io } from '../server';
 import { DeviceService } from '../modules/device/device.service';
 import { AlertService } from '../modules/alert/alert.service';
+import { pumpService } from '../modules/device/pump.service';
 
 export class MqttService {
   private client: mqtt.MqttClient | null = null;
@@ -13,6 +14,20 @@ export class MqttService {
   private thingsboardHost = process.env.THINGSBOARD_HOST || 'http://localhost:8080';
   private deviceService = new DeviceService(); // Khởi tạo service để dùng chung hàm map dữ liệu chuẩn
   private alertService = new AlertService(); // Dịch vụ quản lý và tạo cảnh báo chuyên biệt
+
+  publish(topic: string, message: string): void {
+    if (this.client && this.client.connected) {
+      this.client.publish(topic, message, { qos: 1 }, (err) => {
+        if (err) {
+          console.error(`[MQTT Publish] Gửi tin thất bại tới ${topic}:`, err);
+        } else {
+          console.log(`[MQTT Publish] Đã gửi tin tới ${topic}: ${message}`);
+        }
+      });
+    } else {
+      console.error('[MQTT Publish] Broker chưa kết nối. Không thể gửi tin.');
+    }
+  }
 
   connect(): void {
     console.log(`[MQTT] Đang kết nối tới Broker tại: ${this.brokerUrl}...`);
@@ -107,7 +122,7 @@ export class MqttService {
             // AUTO-DISCOVERY: Thiết bị chưa đăng ký -> Lưu vào Redis hàng chờ trong 5 phút
             await redisClient.set(`unregistered_device:${deviceId}`, new Date().toISOString(), { EX: 300 });
             console.log(`[MQTT Auto-Discovery] Phát hiện thiết bị mới: ${deviceId}. Đã đưa vào hàng chờ.`);
-            
+
             // Đồng bộ qua Socket.io để Frontend biết có thiết bị chưa đăng ký
             io.emit('new_unregistered_device', deviceId);
             return;
@@ -144,6 +159,9 @@ export class MqttService {
           device.lastSeen = new Date();
           const savedDevice = await device.save();
 
+          // Tự động kiểm tra và điều khiển bơm theo preset
+          await pumpService.evaluateAndControl(savedDevice, readingsMap);
+
           // Ánh xạ dữ liệu đầy đủ để gửi Socket.io về Frontend
           const deviceResponse = await this.deviceService.mapToDeviceResponse(savedDevice);
           io.emit('device_update', deviceResponse);
@@ -154,3 +172,5 @@ export class MqttService {
     });
   }
 }
+
+export const mqttService = new MqttService();

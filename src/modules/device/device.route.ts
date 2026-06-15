@@ -22,4 +22,8 @@ router.get('/house/:houseId/telemetry-history', deviceController.getTelemetryHis
 // 2. API phân tích trung bình chỉ số của tất cả nhà nấm để so sánh hiệu năng
 router.get('/houses/comparison', deviceController.getHousesComparison as any);
 
+router.post('/:id/control', deviceController.controlDevice as any);
+router.put('/:id/preset', deviceController.assignPreset as any);
+
+
 export default router;
