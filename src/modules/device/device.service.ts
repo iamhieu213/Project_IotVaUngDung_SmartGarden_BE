@@ -445,4 +445,38 @@ export class DeviceService {
         const savedDevice = await device.save();
         return this.mapToDeviceResponse(savedDevice);
     }
+
+    /**
+     * Tự động kiểm tra và chuyển trạng thái thiết bị sang offline nếu quá lâu không nhận được dữ liệu
+     */
+    async startHeartbeatChecker(intervalMs: number = 30000, timeoutMs: number = 10 * 60 * 1000): Promise<void> {
+        console.log(`[Heartbeat] Khởi động tác vụ quét thiết bị ngoại tuyến (Chu kỳ: ${intervalMs / 1000}s, Timeout: ${timeoutMs / 60000} phút)...`);
+        setInterval(async () => {
+            try {
+                const threshold = new Date(Date.now() - timeoutMs);
+                // Tìm những thiết bị đang online nhưng thời gian cuối nhìn thấy (lastSeen) cũ hơn ngưỡng quy định
+                // Hoặc những thiết bị đang online nhưng chưa bao giờ có lastSeen (lastSeen là undefined)
+                const inactiveDevices = await Device.find({
+                    status: 'online',
+                    $or: [
+                        { lastSeen: { $lt: threshold } },
+                        { lastSeen: { $exists: false } }
+                    ]
+                });
+
+                for (const device of inactiveDevices) {
+                    device.status = 'offline';
+                    const savedDevice = await device.save();
+                    
+                    // Gửi thông báo cập nhật qua Socket.io về Frontend
+                    const deviceResponse = await this.mapToDeviceResponse(savedDevice);
+                    io.emit('device_update', deviceResponse);
+
+                    console.log(`[Heartbeat] Thiết bị ${device.deviceId} (${device.name}) đã bị chuyển sang Offline do không phản hồi quá ${timeoutMs / 60000} phút.`);
+                }
+            } catch (err: any) {
+                console.error('[Heartbeat Error] Lỗi kiểm tra trạng thái thiết bị:', err.message);
+            }
+        }, intervalMs);
+    }
 }

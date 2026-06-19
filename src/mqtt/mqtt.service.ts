@@ -79,11 +79,8 @@ export class MqttService {
           // Tìm thiết bị trong MongoDB và populate để lấy thông tin nhà nấm
           const device = await Device.findOne({ deviceId }).populate('house');
           if (device) {
-            // Cập nhật trạng thái
             device.status = statusVal as 'online' | 'offline';
-            if (statusVal === 'online') {
-              device.lastSeen = new Date();
-            }
+            // Không tự động cập nhật lastSeen ở đây để tránh nhận tin nhắn retain cũ từ Broker làm sai lệch thời gian hoạt động thực tế
             const savedDevice = await device.save();
 
             // Ánh xạ dữ liệu đầy đủ (gồm cả tọa độ sensorPositions) để gửi qua WebSockets
