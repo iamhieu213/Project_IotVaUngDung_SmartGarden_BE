@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
-import { MqttService } from './mqtt/mqtt.service'
+import { mqttService } from './mqtt/mqtt.service'
 dotenv.config();
 
 import app from './app';
 import connectDatabase from './configs/database';
 import http from 'http';
 import { Server } from 'socket.io';
+import { DeviceService } from './modules/device/device.service';
 
 const PORT = process.env.PORT || 3000;
 
@@ -30,8 +31,11 @@ const startServer = async () => {
     await connectDatabase();
 
     // Khởi động dịch vụ lắng nghe MQTT
-    const mqttService = new MqttService();
     mqttService.connect();
+
+    // Khởi động quét heartbeat định kỳ cho các thiết bị
+    const deviceService = new DeviceService();
+    deviceService.startHeartbeatChecker();
 
     // CHỈ DÙNG DUY NHẤT LỆNH NÀY để lắng nghe cổng (Chạy được cả HTTP và WebSockets)
     server.listen(PORT, () => {
