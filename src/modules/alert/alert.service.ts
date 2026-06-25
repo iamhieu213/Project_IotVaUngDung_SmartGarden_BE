@@ -215,6 +215,38 @@ export class AlertService {
         );
       }
     }
+
+    // 4. Kiểm tra Mực nước (quét mọi cảm biến bắt đầu bằng 'waterLevel')
+    let minWater = 999;
+    let hasWater = false;
+
+    readingsMap.forEach((val, key) => {
+      if (key.startsWith('waterLevel') && typeof val === 'number') {
+        hasWater = true;
+        if (val < minWater) minWater = val;
+      }
+    });
+
+    if (hasWater) {
+      if (minWater < 5) {
+        await this.createAndEmitAlert(
+          houseId,
+          deviceId,
+          deviceName,
+          'Mực nước cạn',
+          `CẢNH BÁO: Mực nước bể chứa xuống thấp (${minWater}mm < 5mm). Hệ thống đã tự động ngắt bơm để chống cháy động cơ.`,
+          'critical'
+        );
+      } else {
+        // Nằm trong dải an toàn: Tự động khôi phục cảnh báo mực nước
+        await this.resolveActiveAlerts(
+          houseId,
+          deviceId,
+          'Mực nước',
+          `Mực nước tại bể chứa thuộc mạch "${deviceName}" đã đầy trở lại: ${minWater}mm.`
+        );
+      }
+    }
   }
 
   // Lấy lịch sử cảnh báo của một nhà nấm
