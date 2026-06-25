@@ -10,8 +10,6 @@ import Preset from '../../models/Preset';
 
 export class DeviceService {
     async mapToDeviceResponse(device: IDevice): Promise<DeviceResponse> {
-        // Đọc token từ Redis ra để trả về cho Client
-        const tbToken = await redisClient.get(`tb_token:${device.deviceId}`) || undefined;
         // Lấy dữ liệu cảm biến mới nhất
         const latestData = await SensorData.findOne({ device: device._id }).sort({ createdAt: -1 });
 
@@ -34,7 +32,6 @@ export class DeviceService {
             status: device.status,
             house: (device.house as any)._id ? (device.house as any)._id.toString() : device.house.toString(),
             lastSeen: device.lastSeen,
-            thingsboardAccessToken: tbToken,
             sensorPositions: sensorPositionsObj,
             createdAt: (device as any).createdAt,
             latestTelemetry: latestData && latestData.readings ? {
@@ -47,31 +44,6 @@ export class DeviceService {
         };
     }
 
-    private async provisionThingsboardDevice(deviceName: string): Promise<string> {
-        const host = process.env.THINGSBOARD_HOST || 'https://thingsboard.cloud';
-        const provisionKey = process.env.THINGSBOARD_PROVISION_KEY;
-        const provisionSecret = process.env.THINGSBOARD_PROVISION_SECRET;
-        if (!provisionKey || !provisionSecret) throw new Error('Chưa cấu hình khóa đăng ký ThingsBoard (THINGSBOARD_PROVISION_KEY và THINGSBOARD_PROVISION_SECRET) trong .env');
-
-        try {
-            //gui yeu cau tu dong
-            const response = await axios.post(`${host}/api/v1/provision`, {
-                deviceName: deviceName,
-                provisionDeviceKey: provisionKey,
-                provisionDeviceSecret: provisionSecret
-            });
-
-            if (response.data.status === 'SUCCESS' && response.data.credentialsValue) {
-                return response.data.credentialsValue;
-            } else {
-                throw new Error(response.data.errorMsg || 'Phản hồi không hợp lệ từ ThingsBoard');
-            }
-        } catch (error: any) {
-            console.error('Lỗi khi đăng ký thiết bị tự động trên ThingsBoard:', error.response?.data || error.message);
-            throw new Error('Đăng ký tự động thất bại: ' + (error.response?.data?.message || error.message));
-        }
-
-    }
 
     async controlDevice(deviceId: string, type: string, action: 'on' | 'off', ownerId : string) {
         const device = await Device.findById(deviceId);
@@ -135,21 +107,6 @@ export class DeviceService {
 
         const savedDevice = await device.save();
 
-        let tokenToSave = dto.thingsboardAccessToken;
-
-        if (!tokenToSave) {
-            try {
-                // Sử dụng Tên thiết bị hoặc MAC/Device ID làm tên trên ThingsBoard
-                tokenToSave = await this.provisionThingsboardDevice(dto.name);
-            } catch (err: any) {
-                console.warn('Tự động đăng ký ThingsBoard thất bại, thiết bị sẽ chạy ở chế độ offline trên cloud:', err.message);
-            }
-        }
-
-        if (tokenToSave) {
-            await redisClient.set(`tb_token:${dto.deviceId}`, tokenToSave);
-        }
-
         // 5. Xóa thiết bị khỏi danh sách chờ trong Redis sau khi đã đăng ký thành công
         await redisClient.del(`unregistered_device:${dto.deviceId}`);
         return this.mapToDeviceResponse(savedDevice);
@@ -188,9 +145,6 @@ export class DeviceService {
 
         // Xóa thiết bị trong MongoDB
         await Device.findByIdAndDelete(deviceId);
-
-        // Xóa Token của thiết bị này trong Redis (nếu có)
-        await redisClient.del(`tb_token:${device.deviceId}`);
 
         return true;
     }
