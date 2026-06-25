@@ -11,7 +11,6 @@ import { pumpService } from '../modules/device/pump.service';
 export class MqttService {
   private client: mqtt.MqttClient | null = null;
   private brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
-  private thingsboardHost = process.env.THINGSBOARD_HOST || 'http://localhost:8080';
   private deviceService = new DeviceService(); // Khởi tạo service để dùng chung hàm map dữ liệu chuẩn
   private alertService = new AlertService(); // Dịch vụ quản lý và tạo cảnh báo chuyên biệt
 
