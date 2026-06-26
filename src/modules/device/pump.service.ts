@@ -33,7 +33,15 @@ export class PumpService {
       const topic = `smartgarden/devices/${device.deviceId}/control`;
       let newAction: 'on' | 'off' | null = null;
 
-      if (soilMoisture < preset.soilMoistureMin) {
+      // Logic bảo vệ máy bơm: Nếu phát hiện cạn nước (waterLevel1 < 5mm), ép trạng thái tắt bơm và không cho phép bật tự động
+      const waterLevel = readings.get('waterLevel1');
+      const bypassWaterCheck = true; // Đặt thành true để tạm thời test tự động tưới không cần cảm biến nước
+      if (!bypassWaterCheck && waterLevel !== undefined && waterLevel < 5) {
+        console.log(`[Pump Service] CẢNH BÁO: Mực nước bể (${waterLevel}mm) < 5mm (cạn nước). Không tự động bật bơm để bảo vệ thiết bị.`);
+        if (device.pumpState !== 'off') {
+          newAction = 'off';
+        }
+      } else if (soilMoisture < preset.soilMoistureMin) {
         if (device.pumpState !== 'on') {
           newAction = 'on';
         } else {

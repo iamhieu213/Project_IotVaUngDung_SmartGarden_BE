@@ -153,6 +153,12 @@ export class MqttService {
           // 4. Cập nhật lastSeen và status online
           device.status = 'online';
           device.lastSeen = new Date();
+
+          if (payload.pumpState !== undefined) {
+            device.pumpState = payload.pumpState === 1 ? 'on' : 'off';
+            console.log(`[MQTT Data] Đồng bộ trạng thái bơm của thiết bị ${deviceId} từ payload: ${device.pumpState}`);
+          }
+
           const savedDevice = await device.save();
 
           // Tự động kiểm tra và điều khiển bơm theo preset
